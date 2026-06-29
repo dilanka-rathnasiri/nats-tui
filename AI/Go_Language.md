@@ -4,10 +4,7 @@
 
 | Topic | Rule |
 | ----- | ---- |
-| Logging bootstrap | **`embedlog.ConfigLogger()`** at startup |
-| Echo HTTP logging | **`embed-echo-log`** — `GetSLogHandler`, `SetLoggerWithRequestId`, `EmbedRequestLogger` |
-| Request-scoped logs | **`x_request_id`** on every API-request log |
-| Logger access | **`zerolog.Ctx(ctx)`** — not constructor injection |
+| Logging | **`log/slog`** stdlib with **logfmt** format; context propagation via `slog.LogAttrs()` |
 | Sensitive data | Mask with **`*******`**; never log listed secrets/PII |
 | Readability order | clarity → simplicity → concision → maintainability → consistency |
 | Line length | **~88 columns** soft target (not a hard limit) |
@@ -31,8 +28,6 @@
 | Optional struct fields | Pointer types |
 | Control flow | Prefer `switch` over long `if` chains |
 | Errors | Inline `if err := fn(); err != nil` |
-| Domain errors | Typed `DomainError`; map at transport with `errors.As` |
-| Error wrapping | `%w` once; `errors.Is` / `errors.As`; no string compare |
 | Money / decimals | Never `float32`/`float64`; minor units, decimal VO, or string |
 | Timestamps | UTC storage; RFC3339Nano on APIs; `timestamptz` in DB |
 | `panic` | Never in final/production code |
@@ -53,10 +48,6 @@
 | Server projects | Logic in `internal/`, binaries in `cmd/` |
 | Multiple servers | One module, many `cmd/<server>/` |
 | Nested monorepo | Separate `go.mod`; **no `go.work`** |
-| AWS infrastructure | Repo-root `aws-infrastructure/` with `modules/ecr`, `services/{service}_ecr`, `services/k8s` |
-| K8s manifests | Single `aws-infrastructure/services/k8s/configs/{service}/deployment.yaml` |
-| Dockerfile | `Dockerfile` at module root; one per nested module |
-| Build tags | Regions `mena`, `asia`, `us`, `europe` |
 | Consistency | Match neighbors; `snake_case` filenames win when styles conflict |
 
 ---
@@ -496,7 +487,6 @@ Module path uses **`kebab-case`** (`github.com/gtn-group/order-service`); in-rep
 
 ```
 order_service/                    # repo root; module github.com/gtn-group/order-service
-  Dockerfile                      # container image for this module
   cmd/
     order_service/
       main.go                       # wiring, graceful shutdown
@@ -563,14 +553,13 @@ go build -o bin/admin_server ./cmd/admin_server
 - `http.ListenAndServe(addr, handler)` blocks; pass `nil` handler for `DefaultServeMux` or a custom `ServeMux`.
 - Register handlers before calling `ListenAndServe`; use `http.Handle` / `HandleFunc` or explicit `ServeMux`.
 - For production servers, prefer structured shutdown (`Server.Shutdown`) and place wiring in `cmd/<server>/main.go`.
-- For Echo v5 HTTP servers, use **`embed-echo-log`** for framework and access logging (see [Structured logging](#structured-logging)).
 
 ### Standard GTN layout rules
 
 | Directory | Responsibility | Import rule |
 | --- | --- | --- |
 | `cmd/<service>/` | Process entrypoint, dependency wiring, graceful shutdown | May import `internal/*` and generated `pkg/` code |
-| `internal/domain/` | Aggregates, value objects, domain services, domain errors, repository **interfaces** | Must not import adapters, HTTP, gRPC, NATS, SQL drivers, or K8s packages |
+| `internal/domain/` | Aggregates, value objects, domain services, domain errors, repository **interfaces** | Must not import adapters, HTTP, gRPC, NATS, SQL drivers |
 | `internal/app/` | Use cases, command/query handlers, transaction orchestration | May import domain and dto; must not depend on concrete adapters |
 | `internal/dto/` | Interface definitions and transport contracts at service boundary | May define HTTP/gRPC/NATS interfaces and middleware contracts |
 | `internal/adapters/` | Concrete infra: Postgres, NATS, external gRPC clients, ID generators | May import domain and dto |
@@ -580,12 +569,6 @@ go build -o bin/admin_server ./cmd/admin_server
 | `pkg/` | Public generated clients and reusable APIs for other services | Backward-compatible; reviewed as public API |
 | `api/` | Protobuf and OpenAPI source contracts | Source of truth for generated artifacts |
 | `db/migrations/` | SQL migrations (e.g. golang-migrate) | Forward-only in production |
-| `Dockerfile` | Container image build for this module | Module root only; build context = module root |
-| `aws-infrastructure/` | Repo-root AWS IaC — ECR Terraform and K8s deploy generator | Non-Go; not imported by Go modules |
-| `aws-infrastructure/modules/ecr/` | Reusable ECR Terraform module | Shared by all `{service}_ecr` stacks |
-| `aws-infrastructure/services/{service}_ecr/` | Per-service ECR Terraform stack | One stack per deployable Go module |
-| `aws-infrastructure/services/k8s/` | K8s deployment generator (`main.py`, configs, env files) | Generates manifests from templates |
-| `aws-infrastructure/services/k8s/configs/{service}/deployment.yaml` | Single multi-doc K8s manifest for this service | All objects (`---` separated); `${VAR}` placeholders |
 | *(all)* | Colocate tests: `foo_test.go` beside `foo.go`; `testdata/` for fixtures | — |
 
 **General rules:**
@@ -634,265 +617,17 @@ Each nested project has its **own `go.mod`**. **Do not use `go.work`** at repo r
 
 ```
 monorepo_root/
-  aws-infrastructure/           # shared AWS IaC for all deployable modules
-    modules/
-      ecr/
-    services/
-      subscription_webhook_ecr/
-      payment_gateway_ecr/
-      k8s/
-        main.py
-        configs/
-          subscription_webhook/
-            deployment.yaml
-          payment_gateway/
-            deployment.yaml
-          envs/
-            dev.env
-            qa.env
   subscription_webhook/
-    Dockerfile                  # container image for subscription-webhook module only
     go.mod                      # module github.com/gtn-group/subscription-webhook
     cmd/api_server/main.go
     internal/...
   payment_gateway/
-    Dockerfile                  # container image for payment-gateway module only
     go.mod                      # module github.com/gtn-group/payment-gateway
     cmd/api_server/main.go
     internal/...
 ```
 
 Cross-module deps use `require` / `replace` in each module's `go.mod`. **Avoid** `go.work` and `use (...)` workspace files.
-
-- **Shared repo-root `aws-infrastructure/`** for all deployable modules — one `{service}_ecr` stack and one `k8s/configs/{service}/` directory per module.
-- **No monorepo-root `Dockerfile`** when modules are independent — each module owns its image build.
-- **No `deploy/k8s/`** under Go modules — use centralized `aws-infrastructure/`.
-- **`docker build` context** is always the **nested module directory** containing that module's `go.mod` and `Dockerfile`.
-
-### AWS infrastructure
-
-Every repository with deployable services must include `aws-infrastructure/` at the **repository root**.
-
-- **`modules/ecr/`** — reusable Terraform module for ECR repositories (scan on push, lifecycle policy keeping max 10 images).
-- **`services/{service}_ecr/`** — one Terraform stack per deployable service; provisions that service's ECR repo.
-- **`services/k8s/`** — K8s deployment automation (`main.py`, per-service configs, per-env `.env` files).
-
-Do **not** place K8s manifests under Go module `deploy/k8s/`.
-
-**Reference directory tree** — adapt `{service}` names per project:
-
-```text
-aws-infrastructure/
-  modules/
-    ecr/
-      main.tf              # aws_ecr_repository + lifecycle policy (max 10 images, scan on push)
-      variables.tf
-  services/
-    {service}_ecr/         # one Terraform stack per deployable service (e.g. ws_ecr, sse_ecr)
-      main.tf              # module "ecr" { source = "../../modules/ecr" ... }
-      variables.tf
-      locals.tf            # resource_suffix, common_tags, env_tags
-      backend.tf           # terraform { backend "s3" {} }
-      envs/
-        dev.tfvars
-        qa.tfvars
-        ...                # one .tfvars per GTN environment
-    k8s/
-      main.py              # deployment generator (iac-utils, python-dotenv)
-      requirements.txt
-      configs/
-        {service}/
-          deployment.yaml  # single multi-doc K8s manifest (Deployment, HPA, Service, HTTPRoute — --- separated)
-        envs/
-          {env}.env        # per-environment values for ${VAR} placeholders
-```
-
-**Naming conventions:**
-
-| Asset | Pattern | Example |
-|-------|---------|---------|
-| ECR repository | `ecr-{region_abbr}-{bu_abbr}-{env}-{pv_abbr}-{service}-01` (lowercase) | `ecr-mb-gma-dev-fiam-ws-01` |
-| ECR Terraform dir | `{service}_ecr` | `ws_ecr` |
-| K8s config dir | `configs/{service}/` | `configs/ws/` |
-| K8s manifest file | `deployment.yaml` (not split files) | multi-doc with `---` |
-
-#### ECR Terraform
-
-- **`modules/ecr/main.tf`:** `aws_ecr_repository` named `ecr-{resource_suffix}-{resource_name}-01` (lowercase); `image_scanning_configuration.scan_on_push = true`; lifecycle policy expiring when image count exceeds 10.
-- **`services/{service}_ecr/main.tf`:** calls `module "ecr"` with `source = "../../modules/ecr"`, `resource_name = "{service}"`.
-- **`locals.tf`:** `resource_suffix = upper("{region_abbr}-{bu_abbr}-{env}-{pv_abbr}")`; standard GTN tags (`ApplicationName`, `CostCenter`, `Environment`, `Automation = Terraform`, etc.).
-- **`backend.tf`:** `terraform { backend "s3" {} }`.
-- **`envs/*.tfvars`:** one file per environment (`dev`, `qa`, `sbx`, regional prod/uat variants) with `region`, `region_abbreviation`, `bu_abbreviation`, `env`, `product_vertical_abbr`, `ecr_force_delete`, `source_tag`.
-
-#### K8s deployment generator
-
-- **`services/k8s/main.py`:** reads `_SELECTED_ENV`, `SERVICE_NAME`, `APP_VERSION`; loads `configs/envs/{env}.env`; resolves ECR image URL; generates final manifest via `fs.generate_files(configs/{service}/deployment.yaml, deployment.yaml)`.
-- **`configs/{service}/deployment.yaml`:** single file, all K8s objects (`---` separated); `${VAR}` placeholders for env-specific values (replicas, resources, image URL, endpoints).
-- **`requirements.txt`:** `iac-utils` (GitLab PyPI), `python-dotenv`.
-- Same object types as prior GTN examples: Deployment, HPA, Service, HTTPRoute.
-
-**CI integration** (reference only — do not copy full `.gitlab-ci.yml`): per-service pipeline stages — (1) ECR Terraform via `Terraform/.gitlab-ci.yml`, (2) Docker build/push, (3) K8s deploy via `Python-K8s/.gitlab-ci.yml` with `K8S_PATH`, `SERVICE_NAME`, `_SELECTED_ENV`.
-
-```mermaid
-flowchart TB
-  subgraph repoRoot [Repo root]
-    awsInfra["aws-infrastructure/"]
-    goModA["service_a/ — Dockerfile + go.mod"]
-    goModB["service_b/ — Dockerfile + go.mod"]
-  end
-  subgraph awsInfraDetail [aws-infrastructure]
-    modECR["modules/ecr/"]
-    svcECR["services/{name}_ecr/"]
-    svcK8s["services/k8s/"]
-  end
-  awsInfra --> modECR
-  awsInfra --> svcECR
-  awsInfra --> svcK8s
-  goModA -->|"docker build"| ecr["ECR repo"]
-  svcECR --> ecr
-  svcK8s -->|"generate + deploy"| k8s["Kubernetes"]
-```
-
-### Deployment
-
-Deployment splits into **container build** (per Go module) and **AWS deploy assets** (repo-root `aws-infrastructure/`).
-
-**Container build** (per Go module):
-
-- **`Dockerfile`** — at the **module root** (next to `go.mod`). Builds the container image for this module. One Dockerfile per module; do not share a root Dockerfile across modules.
-- Build context for `docker build` is the **module root** (where `go.mod` and `Dockerfile` live).
-
-**AWS deploy assets** (repo root — see [AWS infrastructure](#aws-infrastructure)):
-
-- **`aws-infrastructure/modules/ecr/`** — shared ECR Terraform module.
-- **`aws-infrastructure/services/{service}_ecr/`** — per-service ECR provisioning.
-- **`aws-infrastructure/services/k8s/configs/{service}/deployment.yaml`** — **single file** containing **all** Kubernetes objects for this service (Deployment, HPA, Service, ServiceAccount, ConfigMap/Secret references, HTTPRoute, etc.). Use YAML document separators (`---`) between resources and `${VAR}` placeholders for env-specific values. Do **not** split into separate `deployment.yaml`, `service.yaml`, `httproute.yaml` files under Go modules.
-
-**Example repo layout:**
-
-```text
-my-project/
-  aws-infrastructure/           # GTN AWS IaC (required for deployable services)
-    modules/ecr/
-    services/
-      payment_gateway_ecr/
-      k8s/configs/payment_gateway/deployment.yaml
-  payment_gateway/              # Go module
-    go.mod
-    Dockerfile
-    cmd/ ...
-    internal/ ...
-```
-
-**Example `deployment.yaml` shape (illustrative):**
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ${SERVICE_NAME}
-spec:
-  replicas: ${REPLICAS}
-  selector:
-    matchLabels:
-      app: ${SERVICE_NAME}
-  template:
-    metadata:
-      labels:
-        app: ${SERVICE_NAME}
-    spec:
-      containers:
-        - name: ${SERVICE_NAME}
-          image: ${ECR_IMAGE_URL}:${APP_VERSION}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${SERVICE_NAME}
-spec:
-  selector:
-    app: ${SERVICE_NAME}
-  ports:
-    - port: 80
----
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: ${SERVICE_NAME}
-# ... remaining objects in same file
-```
-
----
-
-## Build tags and regional configuration
-
-Use **build-tag directory structure** for multiple configuration sets. Regions: **`mena`**, **`asia`**, **`us`**, **`europe`**.
-
-### Layout
-
-```
-project_root/
-  go.mod
-  cmd/
-    api_server/
-      main.go                   # wires internal/app.Run()
-  internal/
-    config/
-      config_mena.go            //go:build mena || !(asia || us || europe)
-      config_asia.go            //go:build asia
-      config_us.go              //go:build us
-      config_europe.go          //go:build europe
-    app/
-      app.go
-```
-
-- Each config-sensitive package has **exactly four** tagged files — one per region.
-- **No stub** files with `panic("implement me")`.
-- APIs are **plain package functions** where possible.
-- `cmd/` does not import region files directly; `app` uses `config` functions resolved at compile time.
-
-### Selection model
-
-- Pass **at most one** region tag per build.
-- **Untagged builds default to `mena`** (same as `-tags mena`).
-
-| Build flags | Compiled region |
-| ----------- | --------------- |
-| (none) | **mena** (default) |
-| `-tags mena` | mena |
-| `-tags asia` | asia |
-| `-tags us` | us |
-| `-tags europe` | europe |
-
-**Default constraint** on every `*_mena.go`:
-
-```go
-//go:build mena || !(asia || us || europe)
-```
-
-**Other regions:**
-
-```go
-//go:build asia    // config_asia.go
-//go:build us       // config_us.go
-//go:build europe   // config_europe.go
-```
-
-### Building
-
-```bash
-go build -o bin/api_mena ./cmd/api_server
-go build -tags asia -o bin/api_asia ./cmd/api_server
-go build -tags us -o bin/api_us ./cmd/api_server
-go build -tags europe -o bin/api_europe ./cmd/api_server
-go build ./...                    # succeeds untagged (mena)
-```
-
-### Isolation
-
-- Versioned trees (`internal/v1`, `internal/v2`) must **not** cross-import.
-- Shared tagged packages (e.g. `internal/config/`) serve all versions — do not duplicate per version.
-- Adding a region: add `*_<region>.go` and update the `mena` default constraint to exclude the new tag.
 
 ---
 
@@ -1043,6 +778,11 @@ When a type uses **receiver methods**, the **struct must be unexported** (privat
 Good:
 
 ```go
+import (
+    "context"
+    "log/slog"
+)
+
 type WebhookService interface {
     Process(ctx context.Context, payload []byte) error
 }
@@ -1060,15 +800,16 @@ func NewWebhookService(repo WebhookRepository) (WebhookService, error) {
 }
 
 func (s *webhookService) Process(ctx context.Context, payload []byte) error {
-    log := zerolog.Ctx(ctx)
-    log.Info().Int("payload_bytes", len(payload)).Msg("processing webhook payload")
+    slog.LogAttrs(ctx, slog.LevelInfo, "processing webhook payload",
+        slog.Int("payload_bytes", len(payload)))
 
     if err := s.repo.Save(ctx, payload); err != nil {
-        log.Error().Err(err).Msg("persist webhook payload")
+        slog.LogAttrs(ctx, slog.LevelError, "persist webhook payload",
+            slog.String("error", err.Error()))
         return err
     }
 
-    log.Info().Msg("webhook payload persisted")
+    slog.LogAttrs(ctx, slog.LevelInfo, "webhook payload persisted")
     return nil
 }
 ```
@@ -1416,69 +1157,6 @@ if err := someFunction(); err != nil {
 }
 ```
 
-### Domain errors
-
-Domain packages must expose **typed errors** that transports can map to HTTP/gRPC status codes **without string matching**.
-
-Define a domain-specific `ErrorCode` type, a `DomainError` struct (`Code`, `Message`, `Fields`), and constructor helpers. Transport layers use `errors.As`:
-
-```go
-type ErrorCode string
-
-const (
-    ErrCodeInvalidQuantity ErrorCode = "ORDER_INVALID_QUANTITY"
-)
-
-type DomainError struct {
-    Code    ErrorCode
-    Message string
-    Fields  map[string]string
-}
-
-func (e *DomainError) Error() string {
-    return fmt.Sprintf("%s: %s", e.Code, e.Message)
-}
-```
-
-```go
-func writeError(w http.ResponseWriter, r *http.Request, err error) {
-    var domainErr *order.DomainError
-    if errors.As(err, &domainErr) {
-        writeDomainError(w, r, domainErr)
-        return
-    }
-    writeInternalError(w, r, err)
-}
-```
-
-Avoid — matching `err.Error()` strings or leaking domain messages without structured codes.
-
-### Wrapping and causality
-
-Wrap errors when crossing boundaries. Preserve causes with **`%w`** exactly once per wrap.
-
-Rules:
-
-1. Use **`%w`** exactly once when preserving a cause.
-2. Use **`errors.Is`** for sentinel errors.
-3. Use **`errors.As`** for typed errors.
-4. Do **not** compare **`err.Error()`** strings.
-5. Do **not** return raw driver errors from application services.
-6. Do **not** log and return the same error at every layer — log at the boundary where the error becomes a response, retry decision, or process-level failure.
-
-Good — adapter maps driver errors to domain errors:
-
-```go
-if err := row.Scan(&record.ID, &record.Status); err != nil {
-    if errors.Is(err, pgx.ErrNoRows) {
-        return order.Record{}, order.NewNotFound(orderID)
-    }
-    return order.Record{}, fmt.Errorf("scan order %s: %w", orderID, err)
-}
-```
-
-Avoid — returning `pgx`/`sql` errors directly from application services; avoid `if err.Error() == "..."`.
-
 ### Never use panic in final code
 
 **Never use `panic`** in production application or library logic. Return `error` values instead.
@@ -1505,201 +1183,311 @@ Tests may use `t.Fatal` / `require` — that is not production `panic`.
 
 ## Structured logging
 
-All services **must** emit machine-readable JSON logs, correlate every request-scoped entry with `x_request_id`, propagate the logger through `context.Context`, and never log secrets or regulated identifiers in clear text.
+All services **must** use Go's standard library **`log/slog`** package with **logfmt** format. Logs should be structured, include context, and never log secrets or regulated identifiers in clear text.
 
-### Required packages
+### Logger setup
 
-| Scope | Package | Module |
-| ----- | ------- | ------ |
-| All Go services | `embed-log` | `gitlab.com/gtn-tech/fintech-api/embed-v2/core/embed-log` |
-| Echo v5 HTTP servers | `embed-echo-log` | `gitlab.com/gtn-tech/fintech-api/embed-v2/core/embed-echo-log` |
-
-Configure the global logger once at startup with **`embedlog.ConfigLogger()`**.
-
-For Echo v5 servers, wire:
-
-- `logger.GetSLogHandler()` — Echo framework logger
-- `middleware.SetLoggerWithRequestId()` — request-scoped logger with `x_request_id`
-- `middleware.EmbedRequestLogger()` — HTTP access logging
-
-**Installation:**
-
-```bash
-go env -w GOPRIVATE=gitlab.com/gtn-tech/*
-go get gitlab.com/gtn-tech/fintech-api/embed-v2/core/embed-log@latest
-go get gitlab.com/gtn-tech/fintech-api/embed-v2/core/embed-echo-log@latest
-```
-
-### Log output shape
-
-Every log entry is a single JSON object on one line.
-
-| Field | Example | Description |
-| ----- | ------- | ----------- |
-| `level` | `info` | Severity: `debug`, `info`, `warn`, `error`, and so on. |
-| `time` | `2026-06-16T08:28:33Z` | UTC timestamp (RFC3339). |
-| `message` | `vehicle registered` | Human-readable event description. |
-| `caller` | `internal/adapters/http/handler.go:22` | Source file and line — present on handler and service logs. |
-| `stack` | `["internal/domain/porsche.go:main.startEngine:17", ...]` | Present only on **error** entries when `.Stack()` is called. |
-| `x_request_id` | `8483a1dd-abd3-4eb9-9fe2-c944ad9298c6` | Correlation ID — **required** on request-scoped entries. |
-| *(arbitrary)* | `"model":"911 Turbo S"` | Additional structured fields for domain context. |
-
-### Three canonical formats
-
-**Echo internal** (no `caller`):
-
-```json
-{"level":"info","address":"[::]:8080","time":"2026-06-16T08:28:33Z","message":"http(s) server started"}
-```
-
-**Handler / request-scoped** (`x_request_id` + `caller`):
-
-```json
-{"level":"info","x_request_id":"8483a1dd-abd3-4eb9-9fe2-c944ad9298c6","time":"2026-06-22T09:05:30Z","caller":"internal/adapters/http/handler.go:22","message":"handling request: Porsche 911 Turbo S"}
-```
-
-**Middleware / access** (no `caller`):
-
-```json
-{"level":"info","method":"GET","uri":"/","route_path":"/","status":200,"x_request_id":"8483a1dd-abd3-4eb9-9fe2-c944ad9298c6","time":"2026-06-16T08:28:33Z","message":"request"}
-```
-
-### Echo quick start
-
-Minimal Echo server with GTN logging:
+Configure slog with logfmt handler at application startup:
 
 ```go
 package main
 
 import (
-    embedlog "gitlab.com/gtn-tech/fintech-api/embed-v2/core/embed-log"
-    "gitlab.com/gtn-tech/fintech-api/embed-v2/core/embed-echo-log/logger"
-    embedMiddleware "gitlab.com/gtn-tech/fintech-api/embed-v2/core/embed-echo-log/middleware"
-
-    "github.com/labstack/echo/v5"
-    "github.com/rs/zerolog"
+    "log/slog"
+    "os"
 )
 
 func main() {
-    embedlog.ConfigLogger()
+    // Configure slog with logfmt handler
+    opts := &slog.HandlerOptions{
+        Level: slog.LevelInfo,
+    }
+    handler := slog.NewTextHandler(os.Stdout, opts)
+    logger := slog.New(handler)
+    slog.SetDefault(logger)
 
-    e := echo.NewWithConfig(echo.Config{
-        Logger: logger.GetSLogHandler(),
-    })
-
-    e.Use(embedMiddleware.SetLoggerWithRequestId())
-    e.Use(embedMiddleware.EmbedRequestLogger())
-
-    e.GET("/", func(c *echo.Context) error {
-        reqLogger := zerolog.Ctx(c.Request().Context())
-        reqLogger.Info().Msg("handling request: Porsche 911 Turbo S")
-        return c.String(200, "Porsche 911 Turbo S")
-    })
-
-    e.Start(":8080")
+    // Your application code
 }
 ```
 
-Use `echo.NewWithConfig` rather than bare `echo.New()` so Echo's internal log output routes through zerolog JSON on stdout.
+### Log output format
 
-`EmbedRequestLogger()` emits one access log per request with `method`, `uri`, `route_path`, `status`, and `x_request_id`. On handler error the message is `"request error"` at error level with an `error` field.
+Using logfmt, log entries are human-readable key=value pairs:
 
-### Request correlation and context
+```
+level=INFO time=2026-06-29T10:30:45Z msg="processing webhook payload" payload_bytes=512
+level=ERROR time=2026-06-29T10:30:46Z msg="persist webhook payload" error="database connection failed"
+```
 
-**Rule:** Every log entry related to an API request **must** include the `x_request_id` field.
+### Context propagation
 
-1. `SetLoggerWithRequestId()` reads `X-Request-Id` from the inbound request header.
-2. A request-scoped zerolog logger with `x_request_id` is stored on `context.Context`.
-3. All downstream code uses `zerolog.Ctx(ctx)` so every emitted line carries `x_request_id` automatically.
+Use **`slog.LogAttrs()`** to propagate context through the call stack:
 
-Logs emitted outside a request scope (startup, background workers without a request) do not require `x_request_id`, but any log that handles or continues work for a specific API request **must** include it.
+```go
+func (s *webhookService) Process(ctx context.Context, payload []byte) error {
+    slog.LogAttrs(ctx, slog.LevelInfo, "processing webhook payload",
+        slog.Int("payload_bytes", len(payload)))
 
-`context.Context` is the single carrier for the request-scoped logger:
+    if err := s.repo.Save(ctx, payload); err != nil {
+        slog.LogAttrs(ctx, slog.LevelError, "persist webhook payload",
+            slog.String("error", err.Error()))
+        return err
+    }
 
-1. **Pass context everywhere** — Every function that may log **must** accept `ctx context.Context` as its first parameter.
-2. **Attach in middleware** — HTTP or gRPC middleware builds the request-scoped logger before calling the next handler.
-3. **Retrieve to log** — Call `zerolog.Ctx(ctx)` inside any function. Do **not** store a logger on structs and do **not** pass `*zerolog.Logger` through constructors.
+    slog.LogAttrs(ctx, slog.LevelInfo, "webhook payload persisted")
+    return nil
+}
+```
 
-**Do not:**
-
-- Add a `logger` field to service or repository structs.
-- Accept `log *zerolog.Logger` (or any logger type) in `NewXxx` constructors.
+### Logger access patterns
 
 **Do:**
 
-- Propagate the same `ctx` from the transport layer through the call stack.
-- Derive child loggers when adding request-local fields: `log := zerolog.Ctx(ctx).With().Str("order_id", id).Logger()` or chain `.Str(...)` inline before `.Msg(...)`.
+- Use `slog.LogAttrs(ctx, level, message, attrs...)` for context-aware logging
+- Use `slog.Info()`, `slog.Error()`, etc. for simple logging without context
+- Use structured attributes: `slog.String()`, `slog.Int()`, `slog.Bool()`, `slog.Any()`
 
-### Startup and non-request logging
+**Do not:**
 
-Use the global logger from `github.com/rs/zerolog/log` after `embedlog.ConfigLogger()`:
+- Store logger instances on structs
+- Pass logger through constructors
+- Use constructor injection for loggers
+
+### Structured attributes
+
+Use the appropriate slog attribute functions for type safety:
 
 ```go
-package main
+slog.LogAttrs(ctx, slog.LevelInfo, "order created",
+    slog.String("order_id", "12345"),
+    slog.Int("quantity", 5),
+    slog.Float64("price", 99.99),
+    slog.Bool("verified", true),
+    slog.Duration("process_time", time.Since(start)),
+)
+```
 
-import (
-    "errors"
+Available attribute functions:
 
-    embedlog "gitlab.com/gtn-tech/fintech-api/embed-v2/core/embed-log"
-    "github.com/rs/zerolog/log"
+- `slog.String(key, value)` - string values
+- `slog.Int(key, value)` - integer values
+- `slog.Int64(key, value)` - 64-bit integers
+- `slog.Float64(key, value)` - floating point numbers
+- `slog.Bool(key, value)` - boolean values
+- `slog.Duration(key, value)` - time durations
+- `slog.Time(key, value)` - time values
+- `slog.Any(key, value)` - arbitrary values (use sparingly)
+
+### Error logging
+
+Log errors with context:
+
+```go
+func (s *orderService) CreateOrder(ctx context.Context, req CreateOrderRequest) error {
+    order, err := s.domain.CreateOrder(ctx, req)
+    if err != nil {
+        slog.LogAttrs(ctx, slog.LevelError, "failed to create order",
+            slog.String("account_id", req.AccountID),
+            slog.String("error", err.Error()),
+        )
+        return err
+    }
+
+    slog.LogAttrs(ctx, slog.LevelInfo, "order created successfully",
+        slog.String("order_id", order.ID),
+        slog.String("account_id", req.AccountID),
+    )
+    return nil
+}
+```
+
+### Different log levels
+
+Use appropriate log levels for different situations:
+
+```go
+slog.LogAttrs(ctx, slog.LevelDebug, "detailed debug information",
+    slog.String("component", "cache"),
+    slog.Int("items", len(items)),
 )
 
-func main() {
-    embedlog.ConfigLogger()
+slog.LogAttrs(ctx, slog.LevelInfo, "normal operational events",
+    slog.String("event", "user_login"),
+    slog.String("user_id", userID),
+)
 
-    log.Info().Str("vehicle", "Porsche 911 Turbo S").Msg("car started")
+slog.LogAttrs(ctx, slog.LevelWarn, "warning conditions",
+    slog.String("issue", "high_latency"),
+    slog.Duration("latency_ms", 150),
+)
 
-    err := errors.New("not enough oil")
-    log.Error().Stack().Str("engine", "flat 6").Err(err).Msg("car stopped")
-}
+slog.LogAttrs(ctx, slog.LevelError, "error conditions",
+    slog.String("operation", "database_query"),
+    slog.String("error", err.Error()),
+)
 ```
 
-`ConfigLogger()` configures UTC timestamps, JSON output to stdout, and caller information on every event.
+### Custom log levels
 
-Chain field methods before `.Msg()` for domain context: `.Str()`, `.Int()`, `.Bool()`, `.Err()`, `.Dur()`.
-
-### Stack traces on errors
-
-Call `.Stack()` on individual error log events when diagnosing the call path matters:
+For development, you can configure the log level:
 
 ```go
-log := zerolog.Ctx(ctx)
-if err := startEngine(); err != nil {
-    log.Error().Stack().Err(err).Msg("engine start failed")
-    return err
+func main() {
+    // Set log level based on environment
+    var level slog.Level
+    if os.Getenv("ENV") == "production" {
+        level = slog.LevelInfo
+    } else {
+        level = slog.LevelDebug
+    }
+
+    opts := &slog.HandlerOptions{
+        Level: level,
+        AddSource: true, // Include source file and line number
+    }
+    handler := slog.NewTextHandler(os.Stdout, opts)
+    logger := slog.New(handler)
+    slog.SetDefault(logger)
 }
 ```
 
-For startup logging without request context, use `log.Error().Stack().Err(err).Msg(...)` on the global logger.
+### Log grouping
+
+Use `slog.Group()` to group related attributes:
+
+```go
+slog.LogAttrs(ctx, slog.LevelInfo, "HTTP request received",
+    slog.Group("request",
+        slog.String("method", r.Method),
+        slog.String("path", r.URL.Path),
+        slog.String("remote_addr", r.RemoteAddr),
+    ),
+    slog.Group("user",
+        slog.String("user_id", userID),
+        slog.String("role", userRole),
+    ),
+)
+```
+
+### Custom handlers (optional)
+
+For advanced use cases, you can create custom handlers:
+
+```go
+import (
+    "context"
+    "log/slog"
+)
+
+type customHandler struct {
+    slog.Handler
+}
+
+func (h *customHandler) Handle(ctx context.Context, r slog.Record) error {
+    // Add custom fields to all log records
+    r.AddAttrs(slog.String("service", "my-service"))
+    return h.Handler.Handle(ctx, r)
+}
+
+func main() {
+    baseHandler := slog.NewTextHandler(os.Stdout, nil)
+    customHandler := &customHandler{Handler: baseHandler}
+    logger := slog.New(customHandler)
+    slog.SetDefault(logger)
+}
+```
+
+### Performance considerations
+
+- slog is optimized for performance; use structured attributes without significant overhead
+- Avoid expensive operations in log arguments (use lazy evaluation with functions if needed)
+- For high-frequency logging, consider using appropriate log levels to minimize output
+
+### Testing with slog
+
+In tests, you can use a custom handler to capture logs:
+
+```go
+import (
+    "bytes"
+    "log/slog"
+    "testing"
+)
+
+func TestProcess(t *testing.T) {
+    var logBuffer bytes.Buffer
+    handler := slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{
+        Level: slog.LevelDebug,
+    })
+    logger := slog.New(handler)
+    slog.SetDefault(logger)
+
+    // Run your test
+    err := service.Process(ctx, payload)
+    
+    // Assert on logs if needed
+    assert.NoError(t, err)
+    assert.Contains(t, logBuffer.String(), "processing webhook payload")
+}
+```
+```
+
+### Request correlation
+
+For HTTP servers, add request ID middleware:
+
+```go
+import (
+    "context"
+    "crypto/rand"
+    "encoding/hex"
+    "log/slog"
+    "net/http"
+)
+
+func generateRequestID() string {
+    b := make([]byte, 8)
+    rand.Read(b)
+    return hex.EncodeToString(b)
+}
+
+func requestIDMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        requestID := r.Header.Get("X-Request-Id")
+        if requestID == "" {
+            requestID = generateRequestID()
+        }
+
+        ctx := context.WithValue(r.Context(), "requestID", requestID)
+        slog.LogAttrs(ctx, slog.LevelInfo, "incoming request",
+            slog.String("method", r.Method),
+            slog.String("path", r.URL.Path),
+            slog.String("request_id", requestID),
+        )
+
+        next.ServeHTTP(w, r.WithContext(ctx))
+    })
+}
+```
 
 ### Logging restrictions
 
 **Never log:**
 
-- Full `x-user-details` header value.
-- HTTP Message Signatures.
-- Authorization tokens.
-- Database passwords or Kubernetes Secret values.
-- Full bank account numbers, card numbers, national IDs, or other regulated identifiers.
+- Authorization tokens
+- Database passwords
+- Full bank account numbers, card numbers, national IDs
+- API keys or secrets
+- Personal identifiers (PII)
 
-**Masking rule:** When a log line must reference customer-sensitive data without revealing it, mask the value with the fixed string **`*******`**.
+**Masking rule:** When a log line must reference sensitive data, mask with **`*******`**:
 
 ```go
-func logSettlementQueued(ctx context.Context, accountID, bankAccountNumber string) {
-    log := zerolog.Ctx(ctx)
-    masked := "*******"
-    if bankAccountNumber == "" {
-        masked = ""
-    }
-
-    log.Info().
-        Str("account_id", accountID).
-        Str("bank_account_number", masked).
-        Msg("settlement instruction queued")
-}
+slog.LogAttrs(ctx, slog.LevelInfo, "payment processed",
+    slog.String("account_id", accountID),
+    slog.String("card_number", "*******"), // Masked
+)
 ```
-
-Use `*******` consistently. Do not log partial values (such as last-four digits) unless a separate standard explicitly permits it. When in doubt, mask with `*******` or omit the field entirely.
 
 ---
 
