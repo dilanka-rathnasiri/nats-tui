@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log/slog"
 	"nats-ui/internal/connections"
 	"nats-ui/internal/services"
@@ -33,7 +32,7 @@ func main() {
 
 	// Listen to the nats subject "dilanka"
 	sub, err := services.ReceiveMsg(nc, "dilanka", func(m *nats.Msg) {
-		fmt.Printf("Received message: %s\n", string(m.Data))
+		slog.Info("Received message", "data", string(m.Data))
 		if string(m.Data) == "AA" {
 			done <- true
 		}
@@ -56,8 +55,8 @@ func main() {
 	// Wait to ensure message is received
 	select {
 	case <-done:
-		fmt.Println("Success")
+		slog.Info("Success")
 	case <-time.After(2 * time.Second):
-		fmt.Println("Timed out")
+		slog.Warn("Timed out")
 	}
 }
