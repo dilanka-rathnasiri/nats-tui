@@ -2,19 +2,30 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"nats-ui/internal/connections"
 	"nats-ui/internal/services"
+	"os"
 	"time"
 
 	"github.com/nats-io/nats.go"
 )
 
+// main is the entry point for the NATS UI application.
+// It connects to NATS, subscribes to a subject, sends a message,
+// and waits for the message to be received.
 func main() {
+	// Set up slog with logfmt format
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
+
 	// Connect to NATS running on localhost
 	nc, err := connections.InitNatsClient()
 	if err != nil {
-		log.Fatalf("Error connecting to NATS: %v", err)
+		slog.Error("Error connecting to NATS", "error", err)
+		os.Exit(1)
 	}
 	defer connections.CloseNatsClient(nc)
 
@@ -29,7 +40,8 @@ func main() {
 	})
 
 	if err != nil {
-		log.Fatalf("Error subscribing: %v", err)
+		slog.Error("Error subscribing", "error", err)
+		os.Exit(1)
 	}
 
 	defer sub.Unsubscribe()
@@ -37,7 +49,8 @@ func main() {
 	// Send message "AA" to the nats subject "dilanka"
 	err = services.SendMsg(nc, "dilanka", []byte("AA"))
 	if err != nil {
-		log.Fatalf("Error sending message: %v", err)
+		slog.Error("Error sending message", "error", err)
+		os.Exit(1)
 	}
 
 	// Wait to ensure message is received
