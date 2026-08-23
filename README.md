@@ -24,10 +24,10 @@ flowchart TD
 
 ## Tasks
 
-- [-] Setup initial terminal UI
-- [] Get nats url
-- [] Show commands
-- [] Publish
-- [] Subscribe
-- [] Request
-- [] Reply
+- ✅ Setup initial terminal UI
+- ▶️ Get nats url
+- ⬜ Show commands
+- ⬜ Publish
+- ⬜ Subscribe
+- ⬜ Request
+- ⬜ Reply
