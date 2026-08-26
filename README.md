@@ -25,8 +25,8 @@ flowchart TD
 ## Tasks
 
 - ✅ Setup initial terminal UI
-- ▶️ Get nats url
-- ⬜ Show commands
+- ✅ Get nats url
+- ▶️ Show commands
 - ⬜ Publish
 - ⬜ Subscribe
 - ⬜ Request

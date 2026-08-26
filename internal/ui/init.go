@@ -7,6 +7,7 @@ import (
 
 type initModel struct {
 	txtInput textinput.Model
+	natsUrl  string
 }
 
 func InitModel() initModel {
@@ -28,6 +29,9 @@ func (m initModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
+		case "enter":
+			m.natsUrl = m.txtInput.Value()
+			return m, nil
 		}
 	}
 
@@ -39,7 +43,9 @@ func (m initModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m initModel) View() tea.View {
 	s := "Enter the nats server url?\n"
 	s += m.txtInput.View()
+	s += "\nPress enter to submit."
 	s += "\nPress ctrl+c to quit.\n"
+	s += "natsUrl: " + m.natsUrl
 
 	v := tea.NewView(s)
 	v.AltScreen = true
