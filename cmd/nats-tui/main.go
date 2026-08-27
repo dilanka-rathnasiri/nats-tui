@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	p := tea.NewProgram(ui.InitModel())
+	p := tea.NewProgram(ui.NewRootModel())
 	if _, err := p.Run(); err != nil {
 		slog.Error("error running program", "error", err)
 		os.Exit(1)

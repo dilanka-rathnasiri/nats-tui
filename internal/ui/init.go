@@ -10,7 +10,7 @@ type initModel struct {
 	natsUrl  string
 }
 
-func InitModel() initModel {
+func newInitModel() initModel {
 	txt := textinput.New()
 	txt.Focus()
 
@@ -23,12 +23,10 @@ func (m initModel) Init() tea.Cmd {
 	return textinput.Blink
 }
 
-func (m initModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m initModel) Update(msg tea.Msg) (initModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
-		case "ctrl+c":
-			return m, tea.Quit
 		case "enter":
 			m.natsUrl = m.txtInput.Value()
 			return m, nil
