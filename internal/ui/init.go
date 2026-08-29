@@ -1,49 +1,30 @@
 package ui
 
 import (
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 )
 
 type initModel struct {
-	txtInput textinput.Model
-	natsUrl  string
 }
 
 func newInitModel() initModel {
-	txt := textinput.New()
-	txt.Focus()
-
-	return initModel{
-		txtInput: txt,
-	}
+	return initModel{}
 }
 
 func (m initModel) Init() tea.Cmd {
-	return textinput.Blink
+	return nil
 }
 
 func (m initModel) Update(msg tea.Msg) (initModel, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyPressMsg:
-		switch msg.String() {
-		case "enter":
-			m.natsUrl = m.txtInput.Value()
-			return m, nil
-		}
-	}
-
-	var cmd tea.Cmd
-	m.txtInput, cmd = m.txtInput.Update(msg)
-	return m, cmd
+	return m, nil
 }
 
 func (m initModel) View() tea.View {
-	s := "Enter the nats server url?\n"
-	s += m.txtInput.View()
-	s += "\nPress enter to submit."
-	s += "\nPress ctrl+c to quit.\n"
-	s += "natsUrl: " + m.natsUrl
+	s := "0 => Url\n"
+	s += "1 => Publish\n"
+	s += "2 => Subscribe\n"
+	s += "3 => Request\n"
+	s += "4 => Reply\n"
 
 	v := tea.NewView(s)
 	v.AltScreen = true
