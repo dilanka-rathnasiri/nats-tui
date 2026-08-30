@@ -5,7 +5,9 @@ import (
 )
 
 type rootModel struct {
-	currntState    RootUiState
+	currntState RootUiState
+	natsUrl     *string
+
 	initModel      initModel
 	urlModel       urlModel
 	publishModel   publishModel
@@ -15,14 +17,17 @@ type rootModel struct {
 }
 
 func NewRootModel() rootModel {
+	natsUrl := ""
 	return rootModel{
-		currntState:    initRootState,
+		currntState: initRootState,
+		natsUrl:     &natsUrl,
+
 		initModel:      newInitModel(),
-		urlModel:       newUrlModel(),
-		publishModel:   newPublishModel(),
-		subscribeModel: newSubscribeModel(),
-		requestModel:   newRequestModel(),
-		replyModel:     newReplyModel(),
+		urlModel:       newUrlModel(&natsUrl),
+		publishModel:   newPublishModel(&natsUrl),
+		subscribeModel: newSubscribeModel(&natsUrl),
+		requestModel:   newRequestModel(&natsUrl),
+		replyModel:     newReplyModel(&natsUrl),
 	}
 }
 

@@ -5,10 +5,13 @@ import (
 )
 
 type requestModel struct {
+	natsUrl *string
 }
 
-func newRequestModel() requestModel {
-	return requestModel{}
+func newRequestModel(natsUrl *string) requestModel {
+	return requestModel{
+		natsUrl: natsUrl,
+	}
 }
 
 func (m requestModel) Init() tea.Cmd {
@@ -20,7 +23,8 @@ func (m requestModel) Update(msg tea.Msg) (requestModel, tea.Cmd) {
 }
 
 func (m requestModel) View() tea.View {
-	s := "You are in request View"
+	s := "You are in request View\n"
+	s += "natsUrl: " + *m.natsUrl
 
 	v := tea.NewView(s)
 	v.AltScreen = true

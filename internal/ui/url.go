@@ -7,15 +7,16 @@ import (
 
 type urlModel struct {
 	txtInput textinput.Model
-	natsUrl  string
+	natsUrl  *string
 }
 
-func newUrlModel() urlModel {
+func newUrlModel(natsUrl *string) urlModel {
 	txt := textinput.New()
 	txt.Focus()
 
 	return urlModel{
 		txtInput: txt,
+		natsUrl:  natsUrl,
 	}
 }
 
@@ -28,7 +29,7 @@ func (m urlModel) Update(msg tea.Msg) (urlModel, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "enter":
-			m.natsUrl = m.txtInput.Value()
+			*m.natsUrl = m.txtInput.Value()
 			return m, nil
 		}
 	}
@@ -42,7 +43,7 @@ func (m urlModel) View() tea.View {
 	s := "Enter the nats server url?\n"
 	s += m.txtInput.View()
 	s += "\nPress enter to submit."
-	s += "natsUrl: " + m.natsUrl
+	s += "natsUrl: " + *m.natsUrl
 
 	v := tea.NewView(s)
 	v.AltScreen = true

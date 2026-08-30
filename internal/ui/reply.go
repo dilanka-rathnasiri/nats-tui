@@ -5,10 +5,13 @@ import (
 )
 
 type replyModel struct {
+	natsUrl *string
 }
 
-func newReplyModel() replyModel {
-	return replyModel{}
+func newReplyModel(natsUrl *string) replyModel {
+	return replyModel{
+		natsUrl: natsUrl,
+	}
 }
 
 func (m replyModel) Init() tea.Cmd {
@@ -20,7 +23,8 @@ func (m replyModel) Update(msg tea.Msg) (replyModel, tea.Cmd) {
 }
 
 func (m replyModel) View() tea.View {
-	s := "You are in reply View"
+	s := "You are in reply View\n"
+	s += "natsUrl: " + *m.natsUrl
 
 	v := tea.NewView(s)
 	v.AltScreen = true

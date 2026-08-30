@@ -5,10 +5,13 @@ import (
 )
 
 type subscribeModel struct {
+	natsUrl *string
 }
 
-func newSubscribeModel() subscribeModel {
-	return subscribeModel{}
+func newSubscribeModel(natsUrl *string) subscribeModel {
+	return subscribeModel{
+		natsUrl: natsUrl,
+	}
 }
 
 func (m subscribeModel) Init() tea.Cmd {
@@ -20,7 +23,8 @@ func (m subscribeModel) Update(msg tea.Msg) (subscribeModel, tea.Cmd) {
 }
 
 func (m subscribeModel) View() tea.View {
-	s := "You are in subscribe View"
+	s := "You are in subscribe View\n"
+	s += "natsUrl: " + *m.natsUrl
 
 	v := tea.NewView(s)
 	v.AltScreen = true

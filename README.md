@@ -26,8 +26,9 @@ flowchart TD
 
 - ✅ Setup initial terminal UI
 - ✅ Get nats url
-- ▶️ Show commands
-- ⬜ Publish
+- ✅ Show commands
+- ✅ Share nats url with other command Models
+- ▶️ Publish
 - ⬜ Subscribe
 - ⬜ Request
 - ⬜ Reply
