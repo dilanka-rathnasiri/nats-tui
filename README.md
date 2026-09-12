@@ -29,6 +29,9 @@ flowchart TD
 - ✅ Show commands
 - ✅ Share nats url with other command Models
 - ▶️ Publish
+    - ✅ UI
+    - ▶️ Functionality
 - ⬜ Subscribe
 - ⬜ Request
 - ⬜ Reply
+- ⬜ Fix text input cursor blinking issue

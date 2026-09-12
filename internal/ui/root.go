@@ -1,8 +1,6 @@
 package ui
 
-import (
-	tea "charm.land/bubbletea/v2"
-)
+import tea "charm.land/bubbletea/v2"
 
 type rootModel struct {
 	currntState RootUiState
@@ -17,7 +15,7 @@ type rootModel struct {
 }
 
 func NewRootModel() rootModel {
-	natsUrl := ""
+	natsUrl := "nats://127.0.0.1:4222"
 	return rootModel{
 		currntState: initRootState,
 		natsUrl:     &natsUrl,
